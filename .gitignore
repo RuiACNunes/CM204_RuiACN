@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Dados pesados (CUB + embeddings cacheados) — não versionar
+data/*
+!data/.gitkeep
+!data/embeddings/
+data/embeddings/*
+!data/embeddings/.gitkeep
+
+# Logs de experimentos pesados — manter apenas o .gitkeep
+results/*.csv
+results/*.json
+!results/.gitkeep
+
+# Editor / OS
+.DS_Store

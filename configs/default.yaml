@@ -1,0 +1,74 @@
+# configs/default.yaml — fonte central de hiperparâmetros, paths e seed.
+# Ver SPEC_CM204.md para o racional de cada decisão.
+
+seed: 42
+
+paths:
+  data_dir: "data"
+  cub_root: "data/CUB_200_2011"          # pasta local extraída de CUB_200_2011.tgz (usada se data.source == "local")
+  embeddings_dir: "data/embeddings"
+  results_dir: "results"
+  experiments_csv: "results/experiments.csv"
+  experiments_json: "results/experiments.json"
+
+# --- Dados ---------------------------------------------------------------
+data:
+  source: "local"                        # "local" (default, fixo) | "hf" (fallback opcional, ver abaixo)
+  # "local" usa a estrutura oficial do CUB_200_2011.tgz (images.txt,
+  # image_class_labels.txt, classes.txt) — reproduzível, sem dependência de
+  # terceiros. train_test_split.txt é ignorado de propósito (ver src/data/cub.py).
+  hf_dataset_name: "Multimodal-Fatima/CUB_200_2011"  # NÃO VERIFICADO — confirmar nome/campos antes de usar source: "hf"
+  hf_image_field: "image"
+  hf_label_field: "label"
+  hf_label_is_zero_indexed: true         # se True, soma 1 ao label do HF para cair na convenção class_id 1-200
+
+# --- Split do estudo (metric learning) -----------------------------------
+split:
+  train_classes: [1, 100]                # classes 1-100 -> treino
+  test_classes: [101, 200]                # classes 101-200 -> teste (disjunto)
+
+# --- Backbone CLIP congelado ----------------------------------------------
+backbone:
+  model_name: "ViT-B-16"
+  pretrained: "openai"
+  device: "cpu"                          # extração de embeddings: trocar para "cuda" se disponível
+  batch_size: 256
+  num_workers: 4
+  embedding_filename: "clip_vitb16.pt"   # cache SEMPRE raw (não normalizado) — ver src/cache/embeddings.py
+
+# --- Avaliação / recuperação (infra herdada do VIAL) -----------------------
+retrieval:
+  metric: "cosine"                       # "cosine" | "euclidean"
+  recall_ks: [1, 2, 4, 8]
+  # Flag de ablação do baseline congelado (SPEC §2.1): aplicada em
+  # scripts/01_baseline_knn.py sobre os embeddings raw cacheados, antes da
+  # busca. Default True = busca por cosseno (padrão da literatura de
+  # retrieval). Se False (mede o efeito de não normalizar), recomenda-se
+  # combinar com metric: "euclidean" — "cosine" via produto interno só é
+  # cosseno de fato sobre vetores já normalizados.
+  baseline_l2_normalize: true
+
+# --- Projection head [CM-204] ----------------------------------------------
+head:
+  in_dim: 512
+  hidden_dim: 512
+  out_dim: 128
+
+# --- PK sampler [CM-204] ----------------------------------------------------
+sampler:
+  P: 8
+  K: 4
+
+# --- Treino da head (Layer 1) [CM-204] --------------------------------------
+training:
+  optimizer: "adam"
+  lr: 1.0e-3
+  epochs: 100
+  margin: 0.2
+  mining_strategies: ["batch_hard", "batch_all"]   # roda os dois regimes (SPEC §6.5)
+  eval_every: 10
+  device: "cpu"
+
+logging:
+  experiments_csv: "results/experiments.csv"
+  experiments_json: "results/experiments.json"
