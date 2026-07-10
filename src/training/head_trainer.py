@@ -23,6 +23,7 @@ from src.eval.metrics import evaluate_retrieval
 from src.eval.retrieval import leave_one_out_ranking
 from src.losses.triplet import TripletLoss
 from src.mining.miners import mine_triplets
+from src.models.backbone import _resolve_device
 from src.models.projection import ProjectionHead
 from src.utils.logging import log_experiment
 from src.utils.seed import set_seed
@@ -62,7 +63,7 @@ def train_head(
     """
     set_seed(config["seed"])
 
-    device = config["training"]["device"]
+    device = _resolve_device(config["training"]["device"])
     train_mask_t = torch.from_numpy(train_mask)
     test_mask_t = torch.from_numpy(test_mask)
 

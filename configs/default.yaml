@@ -67,7 +67,7 @@ training:
   margin: 0.2
   mining_strategies: ["batch_hard", "batch_all"]   # roda os dois regimes (SPEC §6.5)
   eval_every: 10
-  device: "cpu"
+  device: "auto"                         # "auto" detecta CUDA/MPS/CPU (mesmo critério do backbone)
 
 logging:
   experiments_csv: "results/experiments.csv"
