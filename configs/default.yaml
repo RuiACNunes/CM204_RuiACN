@@ -31,7 +31,7 @@ split:
 backbone:
   model_name: "ViT-B-16"
   pretrained: "openai"
-  device: "cpu"                          # extração de embeddings: trocar para "cuda" se disponível
+  device: "auto"                         # "auto" detecta CUDA/MPS/CPU; sobrescreva com "cpu" ou "cuda" se necessário
   batch_size: 256
   num_workers: 0                          # 0 = main process only (seguro no Windows; troque para 4 no Linux/Colab)
   embedding_filename: "clip_vitb16.npz"  # cache SEMPRE raw (não normalizado) — ver src/cache/embeddings.py
