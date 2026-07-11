@@ -1,17 +1,21 @@
 """[CM-204] Adaptação via LoRA do ViT do CLIP — Layer 3 (Hu et al., 2021).
 
-Injeta adaptadores de baixo posto nas projeções de saída de atenção
-(`out_proj`) de cada bloco do transformer visual do CLIP. O backbone base
-fica completamente congelado; apenas os adaptadores A e B (e a projection
-head, externa a este módulo) recebem gradiente.
+Injeta adaptadores de baixo posto na projeção de saída do bloco MLP
+(`mlp.c_proj`) de cada bloco do transformer visual do CLIP.
 
-Nota sobre a escolha de `out_proj` vs. Q/V:
-    O open_clip funde Q, K e V num único tensor `in_proj_weight` que não é
-    exposto como `nn.Linear` — não é possível injetar LoRALinear diretamente
-    sem reimplementar o forward do MultiheadAttention. `out_proj` É um
-    `nn.Linear` e pode ser substituído diretamente. O paper original de LoRA
-    (Tabela 6) reporta que adaptar só out_proj produz resultados comparáveis
-    a Q+V em ViTs, com implementação muito mais limpa.
+Por que `mlp.c_proj` e não `attn.out_proj`?
+    O `nn.MultiheadAttention` do PyTorch lê `out_proj.weight`/`.bias`
+    diretamente na função nativa (`F.multi_head_attention_forward`), em vez
+    de chamar `out_proj(x)` como módulo. Substituir `out_proj` por um
+    `LoRALinear` causaria AttributeError (sem `.weight`) e, mesmo que não
+    quebrasse, o `forward` do adaptador nunca seria executado — o LoRA não
+    teria efeito. `mlp.c_proj` é um `nn.Linear` chamado como módulo, onde
+    o `LoRALinear.forward` executa corretamente. Adaptar camadas MLP é
+    prática comum em PEFT (ver LoRA paper, seção 4).
+
+Parâmetros treináveis (rank=4, ViT-B/16, 12 blocos):
+    Cada c_proj: in=3072, out=768 → A: 3072×4, B: 4×768
+    Total: 12 × 4 × (3072 + 768) = 184.320 / ~150M ≈ 0.12%
 """
 import math
 from dataclasses import dataclass
@@ -39,7 +43,7 @@ class LoRALinear(nn.Module):
     def __init__(self, linear: nn.Linear, rank: int, alpha: float, dropout: float = 0.0):
         super().__init__()
         in_f, out_f = linear.in_features, linear.out_features
-        self.linear = linear  # congelado por inject_lora antes da substituição
+        self.linear = linear  # congelado pelo passo 1 de inject_lora
         self.A = nn.Linear(in_f, rank, bias=False)
         self.B = nn.Linear(rank, out_f, bias=False)
         self.scale = alpha / rank
@@ -52,24 +56,27 @@ class LoRALinear(nn.Module):
 
 
 def inject_lora(clip_model: nn.Module, config: LoRAConfig) -> nn.Module:
-    """Congela o backbone visual e injeta LoRALinear em cada out_proj de atenção.
+    """Congela o modelo CLIP inteiro e injeta LoRALinear em mlp.c_proj de cada bloco.
 
-    Deve ser chamado ANTES de construir o optimizer — parâmetros adicionados
-    depois não são vistos pelo optimizer.
+    Congela o modelo *completo* (não só o visual) porque o CLIP tem parâmetros
+    fora de `clip_model.visual` — encoder de texto, token_embedding, logit_scale
+    etc. — que ficariam treináveis se só o visual fosse congelado, inflando a
+    fração treinável e tornando `count_parameters` enganoso.
 
+    Os `LoRALinear` são criados *depois* do congelamento: A e B nascem com
+    `requires_grad=True` por padrão, sem precisar de tratamento especial.
+
+    Deve ser chamado ANTES de construir o optimizer.
     Retorna o mesmo modelo modificado in-place (para encadeamento).
     """
-    # 1. Congelar todo o backbone visual
-    for p in clip_model.visual.parameters():
+    # 1. Congelar o modelo INTEIRO (visual + encoder de texto + embeddings)
+    for p in clip_model.parameters():
         p.requires_grad_(False)
 
-    # 2. Substituir out_proj em cada bloco de atenção por LoRALinear
+    # 2. Injetar LoRALinear em mlp.c_proj de cada bloco do transformer visual
     for block in clip_model.visual.transformer.resblocks:
-        original_out = block.attn.out_proj
-        # original_out.weight já está congelado (passo 1); LoRALinear.A e .B
-        # são módulos novos com requires_grad=True por padrão.
-        block.attn.out_proj = LoRALinear(
-            original_out, config.rank, config.alpha, config.dropout
+        block.mlp.c_proj = LoRALinear(
+            block.mlp.c_proj, config.rank, config.alpha, config.dropout
         )
 
     return clip_model

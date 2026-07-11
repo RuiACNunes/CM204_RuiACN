@@ -66,21 +66,24 @@ python scripts/04_mining_ablation.py --strategies semi_hard distance_weighted
 
 **`inject_lora`**:
 ```python
-# 1. Congela todo o backbone visual
-for p in clip_model.visual.parameters():
+# 1. Congela o modelo INTEIRO (visual + encoder de texto + embeddings)
+for p in clip_model.parameters():
     p.requires_grad_(False)
 
-# 2. Substitui out_proj em cada bloco de atenção
+# 2. Injeta LoRALinear em mlp.c_proj de cada bloco do transformer visual
 for block in clip_model.visual.transformer.resblocks:
-    block.attn.out_proj = LoRALinear(block.attn.out_proj, rank, alpha, dropout)
+    block.mlp.c_proj = LoRALinear(block.mlp.c_proj, rank, alpha, dropout)
 ```
 
-**Por que `out_proj` e não Q/V?** O open_clip funde Q, K, V num único tensor `in_proj_weight` (não é `nn.Linear`), impossibilitando substituição direta. `out_proj` é um `nn.Linear` exposto e pode ser substituído sem reimplementar o forward do `MultiheadAttention`. O paper de LoRA (Tabela 6) reporta resultados comparáveis entre out_proj e Q+V em ViTs.
+**Por que `mlp.c_proj` e não `attn.out_proj`?** O `nn.MultiheadAttention` do PyTorch lê `out_proj.weight`/`.bias` diretamente na função nativa (`F.multi_head_attention_forward`), sem chamar o módulo. Substituir `out_proj` por `LoRALinear` causa `AttributeError` (sem `.weight`) e, mesmo que não quebrasse, o `forward` do adaptador nunca executaria — o LoRA não teria efeito. `mlp.c_proj` é um `nn.Linear` chamado como módulo, onde o forward funciona corretamente. Adaptar camadas MLP é prática padrão em PEFT.
+
+**Por que congelar o modelo inteiro?** O CLIP tem parâmetros fora do `visual` (encoder de texto, `token_embedding`, `logit_scale`). Congelar só `clip_model.visual` deixa ~25M params do encoder de texto treináveis, inflando a fração para ~42%. Congelar tudo primeiro e criar os `LoRALinear` depois resolve: A e B nascem com `requires_grad=True` por padrão.
 
 **Escala de parâmetros** (ViT-B/16, rank=4):
-- Treináveis: 12 blocos × 2 adaptadores × 2 × (768 × 4) ≈ **74k params**
-- Total backbone: ~86M
-- Fração: **~0.09%** — PEFT clássico
+- Cada `c_proj`: in=3072, out=768 → A: 3072×4, B: 4×768
+- Treináveis: 12 blocos × 4 × (3072 + 768) = **184.320 params**
+- Total modelo: ~150M
+- Fração: **~0.12%** — PEFT clássico
 
 ### Loop de treino
 
