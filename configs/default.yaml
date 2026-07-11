@@ -72,3 +72,16 @@ training:
 logging:
   experiments_csv: "results/experiments.csv"
   experiments_json: "results/experiments.json"
+
+# --- LoRA (Layer 3) [CM-204] ------------------------------------------------
+# O backbone entra no grafo — exige GPU. Layers 0-2 não usam esta seção.
+lora:
+  rank: 4                    # posto dos adaptadores; sweep recomendado: [4, 8, 16]
+  alpha: 8.0                 # escala = alpha/rank; convenção alpha=2*rank
+  dropout: 0.1
+  lr_backbone: 1.0e-4        # adaptadores LoRA (taxa menor — pesos pré-treinados)
+  lr_head: 1.0e-3            # projection head (mesma taxa da Layer 1)
+  epochs: 50
+  eval_every: 5
+  mining_strategy: "batch_hard"   # fixar a vencedora da Layer 2 (variável única)
+  num_workers: 2             # para DataLoader de imagens no Colab/Kaggle; 0 no Windows

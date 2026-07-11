@@ -114,7 +114,7 @@ def train_head(
             batch_labels = batch_labels.to(device)
 
             proj = head(batch_emb)
-            a_idx, p_idx, n_idx = mine_triplets(proj, batch_labels, strategy=strategy)
+            a_idx, p_idx, n_idx = mine_triplets(proj, batch_labels, strategy=strategy, margin=train_cfg["margin"])
             loss = triplet_loss(proj, a_idx, p_idx, n_idx)
 
             optimizer.zero_grad()
