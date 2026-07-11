@@ -79,6 +79,12 @@ def inject_lora(clip_model: nn.Module, config: LoRAConfig) -> nn.Module:
             block.mlp.c_proj, config.rank, config.alpha, config.dropout
         )
 
+    # 3. Mover adaptadores recém-criados (nascem em CPU) para o device do backbone.
+    # LoRALinear guarda o linear original em self.linear; seu weight já está no
+    # device correto e serve de referência.
+    ref_device = clip_model.visual.transformer.resblocks[0].mlp.c_proj.linear.weight.device
+    clip_model.to(ref_device)
+
     return clip_model
 
 

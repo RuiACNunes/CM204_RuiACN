@@ -106,6 +106,7 @@ def main():
 
     lora_config = LoRAConfig(rank=rank, alpha=lora_cfg["alpha"], dropout=lora_cfg["dropout"])
     inject_lora(backbone.model, lora_config)
+    backbone.model.to(device)  # defesa em profundidade: garante adaptadores no device
 
     trainable, total = count_parameters(backbone.model)
     print(
